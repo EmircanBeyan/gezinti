@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Gezinti.API/Gezinti.API.csproj" />
+  <Project Path="Gezinti.Application/Gezinti.Application.csproj" />
+  <Project Path="Gezinti.Domain/Gezinti.Domain.csproj" />
+  <Project Path="Gezinti.Infrastructure/Gezinti.Infrastructure.csproj" />
+</Solution>

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "3eRKI6CVSuE=",
+  "success": true,
+  "projectFilePath": "/Users/emircanbeyan/Desktop/gezinti/backend/Gezinti.API/Gezinti.API.csproj",
+  "expectedPackageFiles": [
+    "/Users/emircanbeyan/.nuget/packages/microsoft.aspnetcore.openapi/10.0.11/microsoft.aspnetcore.openapi.10.0.11.nupkg.sha512",
+    "/Users/emircanbeyan/.nuget/packages/microsoft.openapi/2.7.5/microsoft.openapi.2.7.5.nupkg.sha512"
+  ],
+  "logs": []
+}
