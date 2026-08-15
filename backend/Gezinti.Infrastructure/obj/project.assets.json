@@ -1,11 +1,49 @@
 {
   "version": 4,
   "targets": {
-    "net10.0": {}
+    "net10.0": {
+      "Gezinti.Application/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Gezinti.Domain": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Gezinti.Application.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Gezinti.Application.dll": {}
+        }
+      },
+      "Gezinti.Domain/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "compile": {
+          "bin/placeholder/Gezinti.Domain.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Gezinti.Domain.dll": {}
+        }
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "Gezinti.Application/1.0.0": {
+      "type": "project",
+      "path": "../Gezinti.Application/Gezinti.Application.csproj",
+      "msbuildProject": "../Gezinti.Application/Gezinti.Application.csproj"
+    },
+    "Gezinti.Domain/1.0.0": {
+      "type": "project",
+      "path": "../Gezinti.Domain/Gezinti.Domain.csproj",
+      "msbuildProject": "../Gezinti.Domain/Gezinti.Domain.csproj"
+    }
+  },
   "projectFileDependencyGroups": {
-    "net10.0": []
+    "net10.0": [
+      "Gezinti.Application >= 1.0.0",
+      "Gezinti.Domain >= 1.0.0"
+    ]
   },
   "packageFolders": {
     "/Users/emircanbeyan/.nuget/packages/": {}
@@ -32,7 +70,14 @@
         "net10.0": {
           "framework": "net10.0",
           "targetAlias": "net10.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "/Users/emircanbeyan/Desktop/gezinti/backend/Gezinti.Application/Gezinti.Application.csproj": {
+              "projectPath": "/Users/emircanbeyan/Desktop/gezinti/backend/Gezinti.Application/Gezinti.Application.csproj"
+            },
+            "/Users/emircanbeyan/Desktop/gezinti/backend/Gezinti.Domain/Gezinti.Domain.csproj": {
+              "projectPath": "/Users/emircanbeyan/Desktop/gezinti/backend/Gezinti.Domain/Gezinti.Domain.csproj"
+            }
+          }
         }
       },
       "warningProperties": {

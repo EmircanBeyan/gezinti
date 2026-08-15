@@ -8,10 +8,12 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Gezinti.Application\Gezinti.Application.csproj" />
+    <ProjectReference Include="..\Gezinti.Infrastructure\Gezinti.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
