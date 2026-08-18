@@ -1,5 +1,15 @@
+import { createBrowserRouter, RouterProvider } from 'react-router'
+import HomePage from './pages/HomePage'
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <HomePage />,
+  },
+])
+
 function App() {
-  return <h1>Gezinti</h1>
+  return <RouterProvider router={router} />
 }
 
 export default App
