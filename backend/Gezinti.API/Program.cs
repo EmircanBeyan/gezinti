@@ -1,5 +1,7 @@
 using Gezinti.Application.Interfaces;
+using Gezinti.Infrastructure.Context;
 using Gezinti.Infrastructure.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,7 +11,11 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddScoped<IPlaceRepository, InMemoryPlaceRepository>();
+builder.Services.AddDbContext<GezintiDbContext>(options =>
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<IPlaceRepository, EfPlaceRepository>();
 
 var app = builder.Build();
 

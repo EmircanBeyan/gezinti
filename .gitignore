@@ -31,3 +31,4 @@ yarn-error.log*
 
 # Test results
 **/TestResults/
+appsettings.Development.json
