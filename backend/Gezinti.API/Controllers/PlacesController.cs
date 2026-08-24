@@ -2,6 +2,7 @@ using Gezinti.Application.DTOs.Places;
 using Gezinti.Application.Interfaces;
 using Gezinti.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
+using Gezinti.Application.Services;
 
 namespace Gezinti.API.Controllers;
 
@@ -118,5 +119,67 @@ public class PlacesController : ControllerBase
             return NotFound();
 
         return NoContent();
+    }
+    [HttpGet("nearby")]
+    public async Task<IActionResult> GetNearby(
+    [FromServices] IPlacesProvider placesProvider,
+    [FromServices] PlaceImportService placeImportService,
+    [FromQuery] double latitude,
+    [FromQuery] double longitude,
+    [FromQuery] double radius = 1000,
+    [FromQuery] string? category = null,
+    CancellationToken cancellationToken = default)
+    {
+        var freshnessWindow = TimeSpan.FromMinutes(30);
+
+        var minimumLastSeenAt =
+            DateTime.UtcNow - freshnessWindow;
+
+        var existingPlaces =
+            await _placeRepository.GetNearbyFreshAsync(
+                latitude,
+                longitude,
+                radius,
+                category,
+                minimumLastSeenAt);
+
+        if (existingPlaces.Count > 0)
+        {
+            var existingResponse = existingPlaces.Select(place =>
+                new PlaceResponseDto
+                {
+                    Id = place.Id,
+                    Name = place.Name,
+                    Description = place.Description,
+                    Latitude = place.Latitude,
+                    Longitude = place.Longitude
+                });
+
+            return Ok(existingResponse);
+        }
+
+        var externalPlaces =
+            await placesProvider.GetNearbyAsync(
+                latitude,
+                longitude,
+                radius,
+                category,
+                cancellationToken);
+
+        var importedPlaces =
+            await placeImportService.ImportManyAsync(
+                externalPlaces);
+
+        var response = importedPlaces.Select(place =>
+            new PlaceResponseDto
+            {
+                Id = place.Id,
+                Name = place.Name,
+                Description = place.Description,
+                Latitude = place.Latitude,
+                Longitude = place.Longitude
+            });
+
+        return Ok(response);
     }
 }

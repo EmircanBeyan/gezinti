@@ -2,6 +2,8 @@ using Gezinti.Application.Interfaces;
 using Gezinti.Infrastructure.Context;
 using Gezinti.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Gezinti.Infrastructure.Providers.OpenStreetMap;
+using Gezinti.Application.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +12,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddScoped<PlaceImportService>();
+builder.Services.AddHttpClient<IPlacesProvider, OsmPlacesProvider>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 builder.Services.AddDbContext<GezintiDbContext>(options =>
     options.UseNpgsql(

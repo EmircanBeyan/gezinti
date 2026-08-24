@@ -1,20 +1,18 @@
-namespace Gezinti.Domain.Entities;
+namespace Gezinti.Application.DTOs.Places;
 
-public class Place
+public class ExternalPlaceDto
 {
-    public int Id { get; set; }
-
     public string Name { get; set; } = string.Empty;
 
-    public string Description { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+
+    public string Category { get; set; } = string.Empty;
 
     public double Latitude { get; set; }
 
     public double Longitude { get; set; }
 
-    public string Address { get; set; } = string.Empty;
-
-    public string Category { get; set; } = string.Empty;
+    public double? Rating { get; set; }
 
     public string? Phone { get; set; }
 
@@ -23,6 +21,4 @@ public class Place
     public string Provider { get; set; } = string.Empty;
 
     public string? ExternalId { get; set; }
-
-    public DateTime LastSeenAt { get; set; }
 }
