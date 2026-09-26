@@ -1,6 +1,7 @@
 using Gezinti.Application.DTOs.Places;
 using Gezinti.Application.Interfaces;
 using Gezinti.Domain.Entities;
+using NetTopologySuite.Geometries;
 
 namespace Gezinti.Application.Services;
 
@@ -75,6 +76,13 @@ public class PlaceImportService
                 existingPlace.Website = externalPlace.Website;
                 existingPlace.LastSeenAt = now;
 
+                existingPlace.Location = new Point(
+                    externalPlace.Longitude,
+                    externalPlace.Latitude)
+                {
+                    SRID = 4326
+                };
+
                 updatedPlaces.Add(existingPlace);
                 importedPlaces.Add(existingPlace);
 
@@ -98,7 +106,14 @@ public class PlaceImportService
                 Provider = externalPlace.Provider,
                 ExternalId = externalPlace.ExternalId,
 
-                LastSeenAt = now
+                LastSeenAt = now,
+
+                Location = new Point(
+                    externalPlace.Longitude,
+                    externalPlace.Latitude)
+                {
+                    SRID = 4326
+                }
             };
 
             newPlaces.Add(newPlace);

@@ -1,3 +1,5 @@
+using NetTopologySuite.Geometries;
+
 namespace Gezinti.Domain.Entities;
 
 public class Place
@@ -25,4 +27,6 @@ public class Place
     public string? ExternalId { get; set; }
 
     public DateTime LastSeenAt { get; set; }
+
+    public Point Location { get; set; } = default!;
 }

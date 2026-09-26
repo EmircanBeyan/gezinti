@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: sogis/postgis:16-3.5
+    container_name: gezinti-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: gezinti
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: gezinti_dev_password
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - gezinti_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  gezinti_postgres_data:

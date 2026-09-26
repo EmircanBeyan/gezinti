@@ -1,4 +1,5 @@
 using Gezinti.Domain.Entities;
+using Gezinti.Application.DTOs.Places;
 
 namespace Gezinti.Application.Interfaces;
 
@@ -25,12 +26,12 @@ public interface IPlaceRepository
     Task AddRangeAsync(
         IEnumerable<Place> places);
 
-    Task<List<Place>> GetNearbyFreshAsync(
-        double latitude,
-        double longitude,
-        double radiusMeters,
-        string? category,
-        DateTime minimumLastSeenAt);
+    Task<List<NearbyPlaceDto>> GetNearbyFreshAsync(
+     double latitude,
+     double longitude,
+     double radiusMeters,
+     string? category,
+     DateTime minimumLastSeenAt);
 
     Task UpdateRangeAsync(
         IEnumerable<Place> places);

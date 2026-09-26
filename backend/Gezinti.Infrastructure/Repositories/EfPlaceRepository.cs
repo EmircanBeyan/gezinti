@@ -1,7 +1,9 @@
+using Gezinti.Application.DTOs.Places;
 using Gezinti.Application.Interfaces;
 using Gezinti.Domain.Entities;
 using Gezinti.Infrastructure.Context;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Geometries;
 
 namespace Gezinti.Infrastructure.Repositories;
 
@@ -119,46 +121,24 @@ public class EfPlaceRepository : IPlaceRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<List<Place>> GetNearbyFreshAsync(
-        double latitude,
-        double longitude,
-        double radiusMeters,
-        string? category,
-        DateTime minimumLastSeenAt)
+    public async Task<List<NearbyPlaceDto>> GetNearbyFreshAsync(
+    double latitude,
+    double longitude,
+    double radiusMeters,
+    string? category,
+    DateTime minimumLastSeenAt)
     {
-        const double latitudeKmPerDegree = 111.0;
-
-        var latitudeDelta =
-            radiusMeters / 1000.0 / latitudeKmPerDegree;
-
-        var longitudeKmPerDegree =
-            111.0 *
-            Math.Cos(latitude * Math.PI / 180.0);
-
-        var longitudeDelta =
-            radiusMeters /
-            1000.0 /
-            longitudeKmPerDegree;
-
-        var minLatitude =
-            latitude - latitudeDelta;
-
-        var maxLatitude =
-            latitude + latitudeDelta;
-
-        var minLongitude =
-            longitude - longitudeDelta;
-
-        var maxLongitude =
-            longitude + longitudeDelta;
+        var userLocation = new Point(
+            longitude,
+            latitude)
+        {
+            SRID = 4326
+        };
 
         var query = _context.Places
             .Where(x =>
                 x.LastSeenAt >= minimumLastSeenAt &&
-                x.Latitude >= minLatitude &&
-                x.Latitude <= maxLatitude &&
-                x.Longitude >= minLongitude &&
-                x.Longitude <= maxLongitude);
+                x.Location != null);
 
         if (!string.IsNullOrWhiteSpace(category))
         {
@@ -166,6 +146,24 @@ public class EfPlaceRepository : IPlaceRepository
                 x.Category == category);
         }
 
-        return await query.ToListAsync();
+        var result = await query
+            .Select(x => new NearbyPlaceDto
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Description = x.Description,
+                Latitude = x.Latitude,
+                Longitude = x.Longitude,
+
+                DistanceMeters = EF.Functions.Distance(
+                    x.Location!,
+                    userLocation,
+                    true)
+            })
+            .Where(x => x.DistanceMeters <= radiusMeters)
+            .OrderBy(x => x.DistanceMeters)
+            .ToListAsync();
+
+        return result;
     }
 }

@@ -130,6 +130,12 @@ public class PlacesController : ControllerBase
     [FromQuery] string? category = null,
     CancellationToken cancellationToken = default)
     {
+        if (latitude is < -90 or > 90 || longitude is < -180 or > 180)
+            return BadRequest("Enlem veya boylam geçerli aralıkta değil.");
+
+        if (radius <= 0)
+            return BadRequest("Yarıçap 0'dan büyük olmalı.");
+
         var freshnessWindow = TimeSpan.FromMinutes(30);
 
         var minimumLastSeenAt =
@@ -152,23 +158,52 @@ public class PlacesController : ControllerBase
                     Name = place.Name,
                     Description = place.Description,
                     Latitude = place.Latitude,
-                    Longitude = place.Longitude
+                    Longitude = place.Longitude,
+                    DistanceMeters = Math.Round(
+                        place.DistanceMeters,
+                        2)
                 });
 
             return Ok(existingResponse);
         }
 
-        var externalPlaces =
-            await placesProvider.GetNearbyAsync(
+        List<ExternalPlaceDto> externalPlaces;
+        try
+        {
+            externalPlaces = await placesProvider.GetNearbyAsync(
                 latitude,
                 longitude,
                 radius,
                 category,
                 cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status502BadGateway,
+                title: "OpenStreetMap mekân servisi yanıt vermedi.",
+                detail: "Gezinti API'si çalışıyor; dış mekân servisi geçici olarak yanıt vermedi. Biraz sonra yeniden dene.");
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status504GatewayTimeout,
+                title: "Mekân sağlayıcısının yanıtı zaman aşımına uğradı.",
+                detail: "Gezinti API'si çalışıyor; dış mekân servisi geç yanıt verdi. Biraz sonra yeniden dene.");
+        }
 
+        await placeImportService.ImportManyAsync(
+            externalPlaces);
+
+        // Import işleminden sonra mesafeleri tekrar
+        // PostGIS'e hesaplattırıyoruz.
         var importedPlaces =
-            await placeImportService.ImportManyAsync(
-                externalPlaces);
+            await _placeRepository.GetNearbyFreshAsync(
+                latitude,
+                longitude,
+                radius,
+                category,
+                minimumLastSeenAt);
 
         var response = importedPlaces.Select(place =>
             new PlaceResponseDto
@@ -177,7 +212,10 @@ public class PlacesController : ControllerBase
                 Name = place.Name,
                 Description = place.Description,
                 Latitude = place.Latitude,
-                Longitude = place.Longitude
+                Longitude = place.Longitude,
+                DistanceMeters = Math.Round(
+                    place.DistanceMeters,
+                    2)
             });
 
         return Ok(response);

@@ -11,12 +11,21 @@ public class GezintiDbContext : DbContext
     }
 
     public DbSet<Place> Places => Set<Place>();
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-    modelBuilder.Entity<Place>()
-        .HasIndex(x => new { x.Provider, x.ExternalId })
-        .IsUnique();
 
-    base.OnModelCreating(modelBuilder);
-}
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Place>(entity =>
+        {
+            entity.HasIndex(x => new
+            {
+                x.Provider,
+                x.ExternalId
+            }).IsUnique();
+
+            entity.Property(x => x.Location)
+                .HasColumnType("geography (point, 4326)");
+        });
+    }
 }

@@ -2,11 +2,20 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Gezinti.Application.DTOs.Places;
 using Gezinti.Application.Interfaces;
+using System.Globalization;
+using System.Text.Json;
 
 namespace Gezinti.Infrastructure.Providers.OpenStreetMap;
 
 public class OsmPlacesProvider : IPlacesProvider
 {
+    private static readonly string[] OverpassEndpoints =
+    [
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    ];
+
     private readonly HttpClient _httpClient;
 
     public OsmPlacesProvider(HttpClient httpClient)
@@ -23,11 +32,11 @@ public class OsmPlacesProvider : IPlacesProvider
     }
 
     public async Task<List<ExternalPlaceDto>> GetNearbyAsync(
-        double latitude,
-        double longitude,
-        double radius,
-        string? category = null,
-        CancellationToken cancellationToken = default)
+    double latitude,
+    double longitude,
+    double radius,
+    string? category = null,
+    CancellationToken cancellationToken = default)
     {
         if (radius <= 0)
         {
@@ -42,24 +51,78 @@ public class OsmPlacesProvider : IPlacesProvider
             radius,
             category);
 
-        using var content = new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("data", query)
-        ]);
+        string? responseBody = null;
 
-        content.Headers.ContentType =
-            new MediaTypeHeaderValue("application/x-www-form-urlencoded");
+        for (var endpointIndex = 0; endpointIndex < OverpassEndpoints.Length; endpointIndex++)
+        {
+            using var content = new FormUrlEncodedContent(
+            [
+                new KeyValuePair<string, string>("data", query)
+            ]);
 
-        using var response = await _httpClient.PostAsync(
-            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-            content,
-            cancellationToken);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                OverpassEndpoints[endpointIndex])
+            {
+                Content = content
+            };
 
-        response.EnsureSuccessStatusCode();
+            request.Headers.UserAgent.Clear();
+            request.Headers.UserAgent.ParseAdd(
+                "Gezinti/1.0 (+https://github.com/EmircanBeyan/gezinti)");
+
+            request.Headers.Accept.Clear();
+            request.Headers.Accept.ParseAdd("application/json");
+
+            using var endpointTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            endpointTimeout.CancelAfter(TimeSpan.FromSeconds(8));
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    endpointTimeout.Token);
+            }
+            catch (OperationCanceledException) when (
+                !cancellationToken.IsCancellationRequested &&
+                endpointIndex < OverpassEndpoints.Length - 1)
+            {
+                continue;
+            }
+
+            using (response)
+            {
+                if (response.IsSuccessStatusCode)
+                {
+                    responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    break;
+                }
+
+                // Keep 429 responses on hold instead of immediately retrying another public server.
+                if ((int)response.StatusCode >= 500 && endpointIndex < OverpassEndpoints.Length - 1)
+                    continue;
+
+                throw new HttpRequestException(
+                    $"Overpass API hata döndürdü. Status: {(int)response.StatusCode} {response.ReasonPhrase}.",
+                    null,
+                    response.StatusCode);
+            }
+        }
+
+        if (responseBody is null)
+        {
+            throw new HttpRequestException("Hiçbir Overpass sunucusundan yanıt alınamadı.");
+        }
 
         var result =
-            await response.Content.ReadFromJsonAsync<OverpassResponse>(
-                cancellationToken);
+            JsonSerializer.Deserialize<OverpassResponse>(
+                responseBody,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
 
         if (result?.Elements is null)
         {
@@ -82,14 +145,13 @@ public class OsmPlacesProvider : IPlacesProvider
     {
         var categoryFilter = BuildCategoryFilter(category);
 
-        return $"""
+        return string.Create(CultureInfo.InvariantCulture, $"""
         [out:json][timeout:20];
-        (
-          node{categoryFilter}(around:{radius},{latitude},{longitude});
-          way{categoryFilter}(around:{radius},{latitude},{longitude});
-        );
-        out center tags;
-        """;
+
+        nwr{categoryFilter}(around:{radius},{latitude},{longitude});
+
+        out center tags 50;
+        """);
     }
     private static string BuildCategoryFilter(string? category)
     {
