@@ -93,7 +93,12 @@ function App() {
     setLocationResults([])
     setError('')
     try {
-      const response = await fetch(`${apiBaseUrl}/api/locations/search?q=${encodeURIComponent(query)}`)
+      const params = new URLSearchParams({
+        q: query,
+        latitude: String(position[0]),
+        longitude: String(position[1]),
+      })
+      const response = await fetch(`${apiBaseUrl}/api/locations/search?${params}`)
       if (!response.ok) {
         const problem = await response.json().catch(() => null) as { detail?: string; title?: string } | null
         throw new Error(problem?.detail ?? problem?.title ?? 'Konum aranamadı.')
