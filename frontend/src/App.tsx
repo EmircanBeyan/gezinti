@@ -220,6 +220,22 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const element = mapElement.current
+    if (!element || !map.current) return
+
+    // Leaflet reads the container size when it initializes. The responsive
+    // mobile layout changes that size, so keep the map tiles aligned after
+    // the sidebar/map split settles and whenever the viewport changes.
+    const resizeObserver = new ResizeObserver(() => {
+      map.current?.invalidateSize({ pan: false })
+    })
+    resizeObserver.observe(element)
+    requestAnimationFrame(() => map.current?.invalidateSize({ pan: false }))
+
+    return () => resizeObserver.disconnect()
+  }, [])
+
+  useEffect(() => {
     // Start with the default city. Ask for device location only after the
     // user explicitly chooses the current-location button.
     void searchPlaces(initialPosition, '', searchRadius)
