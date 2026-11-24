@@ -154,6 +154,8 @@ public class EfPlaceRepository : IPlaceRepository
                 Description = x.Description,
                 Latitude = x.Latitude,
                 Longitude = x.Longitude,
+                Provider = x.Provider,
+                IsStale = false,
 
                 DistanceMeters = EF.Functions.Distance(
                     x.Location!,
@@ -165,5 +167,38 @@ public class EfPlaceRepository : IPlaceRepository
             .ToListAsync();
 
         return result;
+    }
+
+    public async Task<List<NearbyPlaceDto>> GetNearbyCachedAsync(
+        double latitude,
+        double longitude,
+        double radiusMeters,
+        string? category,
+        DateTime minimumLastSeenAt,
+        DateTime freshAfter)
+    {
+        var userLocation = new Point(longitude, latitude) { SRID = 4326 };
+        var query = _context.Places
+            .Where(place => place.LastSeenAt >= minimumLastSeenAt && place.Location != null);
+
+        if (!string.IsNullOrWhiteSpace(category))
+            query = query.Where(place => place.Category == category);
+
+        return await query
+            .Select(place => new NearbyPlaceDto
+            {
+                Id = place.Id,
+                Name = place.Name,
+                Description = place.Description,
+                Latitude = place.Latitude,
+                Longitude = place.Longitude,
+                Provider = place.Provider,
+                IsStale = place.LastSeenAt < freshAfter,
+                DistanceMeters = EF.Functions.Distance(place.Location!, userLocation, true)
+            })
+            .Where(place => place.DistanceMeters <= radiusMeters)
+            .OrderBy(place => place.DistanceMeters)
+            .Take(50)
+            .ToListAsync();
     }
 }

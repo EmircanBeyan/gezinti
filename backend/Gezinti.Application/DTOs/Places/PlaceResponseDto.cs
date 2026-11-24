@@ -8,4 +8,8 @@ public class PlaceResponseDto
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public double DistanceMeters { get; set; }
+
+    public string Provider { get; set; } = string.Empty;
+
+    public bool IsStale { get; set; }
 }

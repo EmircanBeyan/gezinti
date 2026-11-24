@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import L from 'leaflet'
 import type { Marker } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -10,18 +10,31 @@ type Place = {
   latitude: number
   longitude: number
   distanceMeters: number
+  provider?: string
+  isStale?: boolean
+}
+type NearbyEvent = {
+  id: string
+  name: string
+  startsAt: string
+  venueName: string
+  address: string
+  distanceMeters: number
+  ticketUrl: string
+  imageUrl?: string | null
+  provider: string
 }
 
 type LocationResult = { name: string; latitude: number; longitude: number }
 type Category = { label: string; value: string; icon: string }
 
 const categories: Category[] = [
-  { label: 'Tümü', value: '', icon: '✳' },
-  { label: 'Kafe', value: 'cafe', icon: '☕' },
-  { label: 'Restoran', value: 'restaurant', icon: '♨' },
-  { label: 'Müze', value: 'museum', icon: '▧' },
-  { label: 'Park', value: 'park', icon: '♧' },
-  { label: 'Eczane', value: 'pharmacy', icon: '✚' },
+  { label: 'Tümü', value: '', icon: 'spark' },
+  { label: 'Kafe', value: 'cafe', icon: 'coffee' },
+  { label: 'Restoran', value: 'restaurant', icon: 'fork' },
+  { label: 'Müze', value: 'museum', icon: 'museum' },
+  { label: 'Park', value: 'park', icon: 'tree' },
+  { label: 'Eczane', value: 'pharmacy', icon: 'plus' },
 ]
 
 const initialPosition: [number, number] = [41.0082, 28.9784]
@@ -31,6 +44,26 @@ function formatDistance(meters: number) {
   return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`
 }
 
+function Icon({ name, size = 18 }: { name: string; size?: number }) {
+  const paths: Record<string, ReactNode> = {
+    pin: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
+    search: <><circle cx="10.8" cy="10.8" r="6.3" /><path d="m16 16 4 4" /></>,
+    crosshair: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="2" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2" /></>,
+    compass: <><circle cx="12" cy="12" r="9" /><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z" /></>,
+    spark: <><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
+    coffee: <><path d="M5 8h12v7a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V8Zm12 2h2a2 2 0 0 1 0 4h-2M8 3v2m4-2v2m4-2v2" /></>,
+    fork: <><path d="M7 3v6m4-6v6M7 6h4m-2 3v12M17 3v18m0-18c2 2 2 7 0 9" /></>,
+    museum: <><path d="m3 9 9-6 9 6M5 10h14M6 10v9m4-9v9m4-9v9m4-9v9M4 21h16" /></>,
+    tree: <><path d="M12 21v-7m0 0 5-5h-4l3-4-4-3-4 3 3 4H7l5 5Z" /><path d="M6 20h12" /></>,
+    plus: <><path d="M12 4v16M4 12h16" /></>,
+    arrow: <><path d="M7 17 17 7M7 7h10v10" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    chevron: <path d="m9 18 6-6-6-6" />,
+    refresh: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.5 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.5-3" /></>,
+  }
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] ?? paths.spark}</svg>
+}
+
 function App() {
   const mapElement = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
@@ -38,8 +71,12 @@ function App() {
   const userMarker = useRef<L.CircleMarker | null>(null)
   const markers = useRef<Map<number, Marker>>(new Map())
   const searchedCenter = useRef<[number, number]>(initialPosition)
-  const initialSearchStarted = useRef(false)
+  const activePlacesRequest = useRef<AbortController | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
+  const [events, setEvents] = useState<NearbyEvent[]>([])
+  const [activeTab, setActiveTab] = useState<'places' | 'events'>('places')
+  const [eventsLoading, setEventsLoading] = useState(false)
+  const [eventsError, setEventsError] = useState('')
   const [activePlace, setActivePlace] = useState<number | null>(null)
   const [category, setCategory] = useState('')
   const [position, setPosition] = useState<[number, number]>(initialPosition)
@@ -51,11 +88,15 @@ function App() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [locating, setLocating] = useState(false)
+  const [locationMessage, setLocationMessage] = useState('')
   const [error, setError] = useState('')
   const [errorTitle, setErrorTitle] = useState('Arama tamamlanamadı')
   const [hasSearched, setHasSearched] = useState(false)
 
   const searchPlaces = useCallback(async (coords = position, selectedCategory = category, radius = searchRadius) => {
+    activePlacesRequest.current?.abort()
+    const requestController = new AbortController()
+    activePlacesRequest.current = requestController
     setLoading(true)
     setError('')
     setErrorTitle('Arama tamamlanamadı')
@@ -67,7 +108,7 @@ function App() {
     if (selectedCategory) query.set('category', selectedCategory)
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/places/nearby?${query}`)
+      const response = await fetch(`${apiBaseUrl}/api/places/nearby?${query}`, { signal: requestController.signal })
       if (!response.ok) {
         const problem = await response.json().catch(() => null) as { detail?: string; title?: string } | null
         if (problem?.title) setErrorTitle(problem.title)
@@ -77,12 +118,37 @@ function App() {
       setPlaces(results)
       setActivePlace(null)
     } catch (cause) {
+      if (requestController.signal.aborted) return
       setError(cause instanceof Error ? cause.message : 'Mekânlar yüklenemedi. Lütfen yeniden dene.')
       setPlaces([])
     } finally {
-      setLoading(false)
+      if (activePlacesRequest.current === requestController) {
+        activePlacesRequest.current = null
+        setLoading(false)
+      }
     }
   }, [category, position, searchRadius])
+
+  const searchEvents = useCallback(async (coords = position, radius = searchRadius) => {
+    setActiveTab('events')
+    setEventsLoading(true)
+    setEventsError('')
+    const query = new URLSearchParams({ latitude: String(coords[0]), longitude: String(coords[1]), radius: String(radius) })
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/events/nearby?${query}`)
+      const payload = await response.json().catch(() => null) as NearbyEvent[] | { detail?: string; title?: string } | null
+      if (!response.ok) {
+        const problem = payload as { detail?: string; title?: string } | null
+        throw new Error(problem?.detail ?? problem?.title ?? `Sunucu ${response.status} yanıtı verdi.`)
+      }
+      setEvents(payload as NearbyEvent[])
+    } catch (cause) {
+      setEvents([])
+      setEventsError(cause instanceof Error ? cause.message : 'Etkinlikler yüklenemedi. Lütfen yeniden dene.')
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [position, searchRadius])
 
   const searchLocations = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -116,7 +182,8 @@ function App() {
         const nextPosition: [number, number] = [bestMatch.latitude, bestMatch.longitude]
         setPosition(nextPosition)
         setLocationLabel(bestMatch.name.split(',').slice(0, 2).join(', '))
-        void searchPlaces(nextPosition, category)
+        if (activeTab === 'events') void searchEvents(nextPosition)
+        else void searchPlaces(nextPosition, category)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Konum aranamadı. Lütfen yeniden dene.')
@@ -131,7 +198,8 @@ function App() {
     setLocationLabel(result.name.split(',').slice(0, 2).join(', '))
     setCityQuery('')
     setLocationResults([])
-    void searchPlaces(nextPosition, category)
+    if (activeTab === 'events') void searchEvents(nextPosition)
+    else void searchPlaces(nextPosition, category)
   }
 
   useEffect(() => {
@@ -152,29 +220,12 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (initialSearchStarted.current) return
-    initialSearchStarted.current = true
-    if (!navigator.geolocation) {
-      void searchPlaces(initialPosition, '', searchRadius)
-      return
-    }
-
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const nextPosition: [number, number] = [coords.latitude, coords.longitude]
-        setPosition(nextPosition)
-        setLocationLabel('Mevcut konum')
-        setLocating(false)
-        void searchPlaces(nextPosition, '', searchRadius)
-      },
-      () => {
-        setLocating(false)
-        void searchPlaces(initialPosition, '', searchRadius)
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    )
+    // Start with the default city. Ask for device location only after the
+    // user explicitly chooses the current-location button.
+    void searchPlaces(initialPosition, '', searchRadius)
   }, [searchPlaces])
+
+  useEffect(() => () => activePlacesRequest.current?.abort(), [])
 
   useEffect(() => {
     if (!map.current) return
@@ -232,34 +283,44 @@ function App() {
     const nextPosition: [number, number] = [center.lat, center.lng]
     setPosition(nextPosition)
     setLocationLabel('Harita merkezi')
-    void searchPlaces(nextPosition, category, searchRadius)
+    if (activeTab === 'events') void searchEvents(nextPosition, searchRadius)
+    else void searchPlaces(nextPosition, category, searchRadius)
   }
 
   const changeSearchRadius = (value: number) => {
     setSearchRadius(value)
-    void searchPlaces(position, category, value)
+    if (activeTab === 'events') void searchEvents(position, value)
+    else void searchPlaces(position, category, value)
   }
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
-      setError('Bu tarayıcı konum özelliğini desteklemiyor.')
+      setLocationMessage('Bu tarayıcı konum özelliğini desteklemiyor.')
       return
     }
     setLocating(true)
     setError('')
+    setLocationMessage('Konumun alınıyor…')
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         const nextPosition: [number, number] = [coords.latitude, coords.longitude]
         setPosition(nextPosition)
         setLocationLabel('Mevcut konum')
         setLocating(false)
-        void searchPlaces(nextPosition, category, searchRadius)
+        setLocationMessage(`Konum bulundu · yaklaşık ${Math.round(coords.accuracy)} m hassasiyet`)
+        if (activeTab === 'events') void searchEvents(nextPosition, searchRadius)
+        else void searchPlaces(nextPosition, category, searchRadius)
       },
-      () => {
+      (cause) => {
         setLocating(false)
-        setError('Konum alınamadı. İzinleri kontrol et veya haritada bir noktaya dokun.')
+        const message = cause.code === cause.PERMISSION_DENIED
+          ? 'Konum izni kapalı. Tarayıcı ayarlarından Gezinti için konum erişimini açıp yeniden dene.'
+          : cause.code === cause.POSITION_UNAVAILABLE
+            ? 'Cihaz konumu bulamadı. Wi‑Fi veya konum servislerini açıp tekrar dene.'
+            : 'Konum isteği zaman aşımına uğradı. Biraz bekleyip yeniden deneyebilirsin.'
+        setLocationMessage(message)
       },
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: false, timeout: 18000, maximumAge: 60000 },
     )
   }
 
@@ -273,47 +334,75 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Gezinti ana sayfa"><span className="brand-mark">g</span><span>gezinti<span className="brand-dot">.</span></span></a>
+        <a className="brand" href="/" aria-label="Gezinti ana sayfa"><span className="brand-mark"><Icon name="pin" size={20} /></span><span>gezinti<span className="brand-period">.</span></span></a>
         <form className="city-search" onSubmit={searchLocations}>
-          <span className="city-search-icon">⌕</span>
-          <input value={cityQuery} onChange={(event) => setCityQuery(event.target.value)} onFocus={() => setLocationResults([])} placeholder="Şehir veya semt ara" aria-label="Şehir veya semt ara" />
-          <button type="submit" disabled={locationLoading}>{locationLoading ? 'Aranıyor…' : 'Ara'}</button>
-          {locationResults.length > 0 && <div className="location-results">{locationResults.map((result) => <button type="button" key={`${result.latitude}-${result.longitude}`} onClick={() => chooseLocation(result)}><span className="result-pin">⌖</span><span><strong>{result.name.split(',').slice(0, 2).join(', ')}</strong><small>{result.name}</small></span><span className="result-arrow">↗</span></button>)}</div>}
+          <Icon name="search" size={19} />
+          <input value={cityQuery} onChange={(event) => setCityQuery(event.target.value)} onFocus={() => setLocationResults([])} placeholder="Bir mahalle, sokak ya da şehir ara" aria-label="Konum ara" />
+          {cityQuery && <kbd>↵</kbd>}
+          <button className="search-submit" type="submit" disabled={locationLoading}>{locationLoading ? <span className="spinner" /> : 'Ara'}</button>
+          {locationResults.length > 0 && <div className="location-results">{locationResults.map((result) => <button type="button" key={`${result.latitude}-${result.longitude}`} onClick={() => chooseLocation(result)}><span className="result-pin"><Icon name="pin" size={17} /></span><span><strong>{result.name.split(',').slice(0, 2).join(', ')}</strong><small>{result.name}</small></span><Icon name="chevron" size={16} /></button>)}</div>}
         </form>
-        <button className="my-location-button" onClick={useMyLocation} disabled={locating}><span>⌖</span>{locating ? 'Konum aranıyor' : 'Konumum'}</button>
+        <button className="my-location-button" onClick={useMyLocation} disabled={locating} aria-label={locating ? 'Konum alınıyor' : 'Mevcut konumumu kullan'} title="Mevcut konumumu kullan"><Icon name="crosshair" size={17} /><span>{locating ? 'Konum aranıyor' : 'Konumum'}</span></button>
       </header>
 
-      <section className="map-panel" aria-label="Yakındaki yerlerin haritası">
-        <div ref={mapElement} className="map-canvas" />
-        <div className="map-shade" />
-        <aside className="explore-card">
-          <div className="card-kicker"><span className="live-dot" /> GEZİNTİ / YAKININDA</div>
-          <div className="card-title-row"><div><h1>Şehrini keşfet.</h1><p><span className="tiny-pin">⌖</span>{locationLabel} <span className="middot">·</span> {formatDistance(searchRadius)} çevre</p></div><button className="refresh-button" aria-label="Tekrar ara" onClick={() => void searchPlaces(position, category, searchRadius)} disabled={loading}>↻</button></div>
-
-          <label className="radius-control"><span>ARAMA MESAFESİ</span><select value={searchRadius} onChange={(event) => changeSearchRadius(Number(event.target.value))}><option value={1000}>1 km</option><option value={1500}>1.5 km</option><option value={3000}>3 km</option><option value={5000}>5 km</option></select></label>
-
-          <div className="category-strip" aria-label="Mekân kategorisi">
-            {categories.map((item) => <button key={item.value} className={`category-chip ${category === item.value ? 'selected' : ''}`} onClick={() => selectCategory(item.value)}><span>{item.icon}</span>{item.label}</button>)}
+      <section className="workspace" aria-label="Gezinti keşif alanı">
+        <aside className="explore-sidebar">
+          <div className="sidebar-intro">
+            <div className="eyebrow"><span className="eyebrow-line" /> YAKININDA NE VAR?</div>
+            <div className="sidebar-title-row"><div><h1>Şehrin sana<br /><em>iyi gelsin.</em></h1><p><Icon name="pin" size={15} />{locationLabel}</p></div><button className="refresh-button" aria-label="Tekrar ara" onClick={() => activeTab === 'places' ? void searchPlaces(position, category, searchRadius) : void searchEvents(position, searchRadius)} disabled={loading || eventsLoading}><Icon name="refresh" size={17} /></button></div>
           </div>
 
-          <div className="places-heading"><div><h2>{loading ? 'Yakınındaki yerler aranıyor' : 'Yakınındaki yerler'}</h2><span>{places.length ? `${places.length} keşif noktası` : 'Yeni bir yer keşfet'}</span></div><span className="result-count">{places.length.toString().padStart(2, '0')}</span></div>
-          <div className="results-list">
-            {loading && <div className="message-card"><span className="spinner" /> Yerleri senin için buluyoruz…</div>}
-            {!loading && error && <div className="message-card error-card"><strong>{errorTitle}</strong><span>{error}</span></div>}
-            {!loading && !error && hasSearched && places.length === 0 && <div className="message-card"><strong>Bu çevrede yer bulamadık.</strong><span>Başka bir kategori veya harita konumu deneyebilirsin.</span></div>}
-            {!loading && !error && !hasSearched && <div className="message-card"><strong>Keşif seni bekliyor.</strong><span>Bir şehir ara veya haritada istediğin noktaya dokun.</span></div>}
-            {!loading && places.map((place, index) => <button key={place.id} className={`place-card ${activePlace === place.id ? 'active' : ''}`} onClick={() => selectPlace(place)}>
-              <span className={`place-number tone-${index % 4}`}>{String(index + 1).padStart(2, '0')}</span>
-              <span className="place-info"><strong>{place.name}</strong><small>{place.description || categories.find((item) => item.value === category)?.label || 'Çevrende keşfedilecek'}</small></span>
-              <span className="place-distance">{formatDistance(place.distanceMeters)}</span>
-            </button>)}
+          <div className="explore-tabs" role="tablist" aria-label="Keşif türü">
+            <button role="tab" aria-selected={activeTab === 'places'} className={activeTab === 'places' ? 'selected' : ''} onClick={() => setActiveTab('places')}>Mekânlar <span>{places.length || ''}</span></button>
+            <button role="tab" aria-selected={activeTab === 'events'} className={activeTab === 'events' ? 'selected' : ''} onClick={() => void searchEvents(position, searchRadius)}>Etkinlikler <span>{events.length || ''}</span></button>
           </div>
-          <div className="card-footnote"><span>↖</span> Haritada başka bir noktaya dokunarak ara</div>
+
+          <div className="radius-card">
+            <span className="radius-symbol"><Icon name="compass" size={17} /></span>
+            <span className="radius-copy"><strong>Arama çevresi</strong><small>Yakınındaki mesafeyi seç</small></span>
+            <label className="radius-control"><select aria-label="Arama yarıçapı" value={searchRadius} onChange={(event) => changeSearchRadius(Number(event.target.value))}><option value={1000}>1 km</option><option value={1500}>1.5 km</option><option value={3000}>3 km</option><option value={5000}>5 km</option></select><span>⌄</span></label>
+          </div>
+
+          {activeTab === 'places' && <>
+            <div className="category-strip" aria-label="Mekân kategorisi">{categories.map((item) => <button key={item.value} className={`category-chip ${category === item.value ? 'selected' : ''}`} onClick={() => selectCategory(item.value)}><Icon name={item.icon} size={15} /><span>{item.label}</span></button>)}</div>
+            <div className="list-heading"><div><h2>{loading ? 'Aranıyor' : 'Keşfedilecek yerler'}</h2><p>{places.length ? `${places.length} mekân bu civarda` : 'Yol üstünde güzel bir mola.'}</p></div><span className="result-count">{places.length.toString().padStart(2, '0')}</span></div>
+            {places.some((place) => place.isStale) && <div className="notice-card"><span className="notice-mark">i</span><span>Bağlantı kurulamadı; kayıtlı sonuçlar gösteriliyor. Bilgiler güncel olmayabilir.</span></div>}
+            <div className="results-list">
+              {loading && <div className="empty-state"><span className="spinner" /><strong>Çevrene göz atıyoruz</strong><p>Yakındaki yerler birazdan burada.</p></div>}
+              {!loading && error && <div className="empty-state error-card"><span className="empty-icon">!</span><strong>{errorTitle}</strong><p>{error}</p></div>}
+              {!loading && !error && hasSearched && places.length === 0 && <div className="empty-state"><span className="empty-icon"><Icon name="pin" size={21} /></span><strong>Şimdilik sessiz görünüyor.</strong><p>Biraz daha uzağa bakmayı ya da haritada başka bir alanı dene.</p></div>}
+              {!loading && !error && !hasSearched && <div className="empty-state"><span className="empty-icon"><Icon name="spark" size={21} /></span><strong>Bir yer seç, keşfe başlayalım.</strong><p>Şehir, semt veya sokak adı yazabilirsin.</p></div>}
+              {!loading && places.map((place, index) => <button key={place.id} className={`place-card ${activePlace === place.id ? 'active' : ''}`} onClick={() => selectPlace(place)}>
+                <span className="place-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="place-info"><strong>{place.name}</strong><small>{place.isStale ? 'Kayıtlı sonuç · güncel olmayabilir' : place.description || categories.find((item) => item.value === category)?.label || place.provider || 'Yakınında'}</small></span>
+                <span className="place-meta"><span>{formatDistance(place.distanceMeters)}</span><Icon name="chevron" size={15} /></span>
+              </button>)}
+            </div>
+          </>}
+
+          {activeTab === 'events' && <>
+            <div className="list-heading"><div><h2>Takvimde yakında</h2><p>{events.length ? `${events.length} etkinlik · 60 gün içinde` : 'Canlı müzik ve buluşmalar'}</p></div><span className="result-count">{events.length.toString().padStart(2, '0')}</span></div>
+            <div className="results-list event-list">
+              {eventsLoading && <div className="empty-state"><span className="spinner" /><strong>Takvime bakıyoruz</strong><p>Yakındaki etkinlikleri arıyoruz.</p></div>}
+              {!eventsLoading && eventsError && <div className="empty-state error-card"><span className="empty-icon">!</span><strong>Etkinliklere ulaşılamadı</strong><p>{eventsError}</p></div>}
+              {!eventsLoading && !eventsError && events.length === 0 && <div className="empty-state"><span className="empty-icon"><Icon name="clock" size={21} /></span><strong>Şimdilik yeni bir etkinlik yok.</strong><p>Arama alanını genişletip tekrar bakabilirsin.</p></div>}
+              {!eventsLoading && events.map((eventItem) => <article className="event-card" key={eventItem.id}>
+                {eventItem.imageUrl && <img className="event-image" src={eventItem.imageUrl} alt="" loading="lazy" />}
+                <div className="event-card-content"><time><Icon name="clock" size={13} />{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(eventItem.startsAt))}</time><strong>{eventItem.name}</strong><span>{eventItem.venueName}{eventItem.address ? ` · ${eventItem.address}` : ''}</span><div className="event-card-footer"><small>{formatDistance(eventItem.distanceMeters)} uzakta</small><a href={eventItem.ticketUrl} target="_blank" rel="noreferrer">Detaylar <Icon name="arrow" size={13} /></a></div></div>
+              </article>)}
+            </div>
+          </>}
+          <div className="sidebar-foot"><span className="live-dot" /> Harita üzerinde serbestçe dolaş</div>
         </aside>
 
-        <div className="map-status"><span className="live-dot" /> {locationLabel} <span className="status-divider">/</span> OpenStreetMap</div>
-        {mapMoved && <button className="search-this-area" onClick={searchThisArea} disabled={loading}><span>⌖</span>{loading ? 'Aranıyor…' : 'Bu bölgede ara'}</button>}
+        <div className="map-panel" aria-label="Yakındaki yerlerin haritası">
+          <div ref={mapElement} className="map-canvas" />
+          <div className="map-toolbar"><span className="map-live"><span className="live-dot" />{locationLabel}</span><span className="map-credit">© OpenStreetMap</span></div>
+          {mapMoved && <button className="search-this-area" onClick={searchThisArea} disabled={loading}><Icon name="search" size={15} />{loading ? 'Aranıyor…' : 'Bu alanda ara'}</button>}
+          <div className="map-caption"><span className="caption-mark"><Icon name="pin" size={17} /></span><span><strong>Yakın çevren</strong><small>{formatDistance(searchRadius)} içinde keşfedilecek yerler</small></span></div>
+        </div>
       </section>
+      {locationMessage && <div className={`location-toast ${locating ? 'is-loading' : ''}`} role="status"><span className="toast-indicator">{locating ? <span className="spinner" /> : <Icon name={locationMessage.startsWith('Konum bulundu') ? 'pin' : 'crosshair'} size={16} />}</span><span>{locationMessage}</span><button onClick={() => setLocationMessage('')} aria-label="Bildirimi kapat">×</button></div>}
     </main>
   )
 }

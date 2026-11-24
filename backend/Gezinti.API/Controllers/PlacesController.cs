@@ -159,9 +159,9 @@ public class PlacesController : ControllerBase
                     Description = place.Description,
                     Latitude = place.Latitude,
                     Longitude = place.Longitude,
-                    DistanceMeters = Math.Round(
-                        place.DistanceMeters,
-                        2)
+                    DistanceMeters = Math.Round(place.DistanceMeters, 2),
+                    Provider = place.Provider,
+                    IsStale = place.IsStale
                 });
 
             return Ok(existingResponse);
@@ -177,19 +177,27 @@ public class PlacesController : ControllerBase
                 category,
                 cancellationToken);
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (
+            exception is HttpRequestException or TimeoutException ||
+            exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
+            var cachedPlaces = await _placeRepository.GetNearbyCachedAsync(
+                latitude,
+                longitude,
+                radius,
+                category,
+                DateTime.UtcNow.AddDays(-90),
+                minimumLastSeenAt);
+
+            if (cachedPlaces.Count > 0)
+                return Ok(cachedPlaces.Select(ToResponse));
+
             return Problem(
-                statusCode: StatusCodes.Status502BadGateway,
-                title: "OpenStreetMap mekân servisi yanıt vermedi.",
-                detail: "Gezinti API'si çalışıyor; dış mekân servisi geçici olarak yanıt vermedi. Biraz sonra yeniden dene.");
-        }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status504GatewayTimeout,
-                title: "Mekân sağlayıcısının yanıtı zaman aşımına uğradı.",
-                detail: "Gezinti API'si çalışıyor; dış mekân servisi geç yanıt verdi. Biraz sonra yeniden dene.");
+                statusCode: exception is TimeoutException or TaskCanceledException
+                    ? StatusCodes.Status504GatewayTimeout
+                    : StatusCodes.Status502BadGateway,
+                title: "Mekân servisleri yanıt vermedi.",
+                detail: "OpenStreetMap yanıt vermedi ve TomTom yedeği sonuç getiremedi. TomTom:ApiKey ayarı yoksa yedek servis etkin değildir. Biraz sonra yeniden dene.");
         }
 
         await placeImportService.ImportManyAsync(
@@ -213,11 +221,23 @@ public class PlacesController : ControllerBase
                 Description = place.Description,
                 Latitude = place.Latitude,
                 Longitude = place.Longitude,
-                DistanceMeters = Math.Round(
-                    place.DistanceMeters,
-                    2)
+                DistanceMeters = Math.Round(place.DistanceMeters, 2),
+                Provider = place.Provider,
+                IsStale = place.IsStale
             });
 
         return Ok(response);
     }
+
+    private static PlaceResponseDto ToResponse(NearbyPlaceDto place) => new()
+    {
+        Id = place.Id,
+        Name = place.Name,
+        Description = place.Description,
+        Latitude = place.Latitude,
+        Longitude = place.Longitude,
+        DistanceMeters = Math.Round(place.DistanceMeters, 2),
+        Provider = place.Provider,
+        IsStale = place.IsStale
+    };
 }

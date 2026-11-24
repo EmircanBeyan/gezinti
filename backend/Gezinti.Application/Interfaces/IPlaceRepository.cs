@@ -33,6 +33,14 @@ public interface IPlaceRepository
      string? category,
      DateTime minimumLastSeenAt);
 
+    Task<List<NearbyPlaceDto>> GetNearbyCachedAsync(
+        double latitude,
+        double longitude,
+        double radiusMeters,
+        string? category,
+        DateTime minimumLastSeenAt,
+        DateTime freshAfter);
+
     Task UpdateRangeAsync(
         IEnumerable<Place> places);
 }
